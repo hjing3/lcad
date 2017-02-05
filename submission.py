@@ -23,34 +23,32 @@ def read_patient_labels(csv_fname):
         return dict([(r[0], float(r[1])) for r in reader if len(r) == 2])
 
 
-_DATA_DIR = '/home/haojing/projects/kaggle/lungcancer/data/stage1'
-_LABELS_CSV = '/home/haojing/projects/kaggle/lungcancer/data/stage1_labels.csv'
-_SAMPLE_CSV = \
-    '/home/haojing/projects/kaggle/lungcancer/data/stage1_sample_submission.csv'
+_DATA_DIR = '../../data/stage1'
+_LABELS_CSV = '../../data/stage1_labels.csv'
+_SAMPLE_CSV = '../../data/stage1_sample_submission.csv'
 
 patient_names = os.listdir(_DATA_DIR)
 patient_labels = read_patient_labels(_LABELS_CSV)
-test_patient_names = set(read_patient_labels(_SAMPLE_CSV).keys())
+test_patient_names = list(set(read_patient_labels(_SAMPLE_CSV).keys()))
 
 print "[ground-truth patients, test-patients] = [%d, %d]" \
     % (len(patient_labels), len(test_patient_names))
 
-
 def get_patient_feature_data(patients):
     feature_dict = {}
-    for pname in patient_labels.keys():
+    for pname in patients:
         # get patient image dir
-        print 'processing patient: %s' % pname
+        #print 'processing patient: %s' % pname
         patient_img_dir = os.path.join(_DATA_DIR, pname)
-        print 'patient_img_dir: %s' % patient_img_dir
+        #print 'patient_img_dir: %s' % patient_img_dir
         p_images = lung_image.load_image_from_patient_dir(patient_img_dir)
-        print 'pimages: %s' % p_images
+        #print 'pimages: %s' % p_images
 
         p_segment = segmentation.segment(p_images)
-        print 'p_segment: %s' % p_segment
+        #print 'p_segment: %s' % p_segment
 
         p_feature = feature_extraction.extract_features(p_segment)
-        print 'p_feature: %s' % str(p_feature)
+        #print 'p_feature: %s' % str(p_feature)
         feature_dict[pname] = p_feature
     return feature_dict
 
@@ -106,6 +104,29 @@ def classify_data():
         y_pred[test] = clf.predict(X_test)
     print classification_report(Y, y_pred, target_names=["No Cancer", "Cancer"])
     print("logloss", logloss(Y, y_pred))
+
+    # ######################
+    # Classify test data
+    # ######################
+    test_patient_features = get_patient_feature_data(test_patient_names)
+    print test_patient_features.keys()
+
+    print "extract features for test patients"
+    X_test_patient = \
+        np.array([test_patient_features[p] for p in test_patient_names])
+
+    clf_overall = RF(n_estimators=100, n_jobs=3)
+    clf_overall.fit(X, Y)
+    test_patient_pred = clf_overall.predict(X_test_patient)
+    print test_patient_pred
+    write_submission_file(test_patient_names, test_patient_pred)
+
+
+def write_submission_file(patient_names, preds):
+    with open('../../lcad.csv', 'w') as f:
+        f.write('id,cancer\n')
+        for i in range(len(patient_names)):
+            f.write('{},{}\n'.format(patient_names[i], preds[i]))
 
 if __name__ == '__main__':
     classify_data()
