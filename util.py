@@ -1,6 +1,7 @@
 import numpy as np
 
 from scipy import ndimage
+from scipy.ndimage.filters import gaussian_filter
 from skimage import measure
 from skimage import morphology
 from skimage import segmentation
@@ -16,14 +17,27 @@ def find_first_neq(a, val):
             return i
 
 
+def find_bbox(a, margin, bg):
+    margin = np.round(margin).astype(np.int)
+    slices = []
+    for axis in range(len(a.shape)):
+        view = np.rollaxis(a, axis)
+        dim = a.shape[axis]
+        m = margin[axis]
+        front = find_first_neq(view, bg)
+        front = min(dim, max(0, front - m))
+        back = find_first_neq(view[::-1], bg)
+        back = min(dim, max(0, back - m))
+        slices.append(slice(front, dim - back))
+    return slices
+
+
 def resample(image, spacing, new_spacing=(1.0, 1.0, 1.0)):
     """ Resample image from spacing to new_spacing.
-
     Args:
       image: 3D image of shape (z, y, x).
       spacing: (x, y, z) spacing of image.
       new_spacing: resampling to this new spacing.
-
     Returns:
       Image resampled to new_spacing.
     """
@@ -137,7 +151,7 @@ def _postprocess_mask(mask):
         return binary
     
     max2_label_counts, max2_label = counts_and_vals[1]
-    if max2_label_counts > 0.5 * max_label_counts:
+    if max2_label_counts > 0.2 * max_label_counts:
         binary[(labels!=max_label)&(labels!=max2_label)] = 0
     else:
         binary[labels!=max_label] = 0
@@ -323,3 +337,113 @@ def plot_ct_scan(image):
     for i in range(0, image.shape[0], 5):
         plots[int(i / 20), int((i % 20) / 5)].axis('off')
         plots[int(i / 20), int((i % 20) / 5)].imshow(image[i], cmap=plt.cm.bone)
+
+
+def apply_argsort(a, p):
+    return a[list(np.ogrid[[slice(x) for x in a.shape]][:-1])+[p]]
+
+
+def _enhance_filter_2d_impl(image, sigma, kind):
+    bg = image[0, 0]
+    fyy = gaussian_filter(image, sigma, order=(2, 0) , mode='constant', cval=bg)
+    fxx = gaussian_filter(image, sigma, order=(0, 2) , mode='constant', cval=bg)
+    fxy = gaussian_filter(image, sigma, order=(1, 1) , mode='constant', cval=bg)
+    a = np.zeros(list(image.shape) + [2, 2])
+    a[:,:,0,0] = fxx
+    a[:,:,1,1] = fyy
+    a[:,:,1,0] = a[:,:,0,1] = fxy
+    w, _ = np.linalg.eig(a)
+    w = apply_argsort(w, np.argsort(np.abs(w)))
+    lambda1 = w[:,:,1]
+    lambda2 = w[:,:,0]
+    if kind == 'dot':
+        ans = np.abs(lambda2)**2 / np.abs(lambda1)
+        ans[~((lambda1<0)&(lambda2<0))] = 0.0
+    elif kind == 'line':
+        ans = np.abs(lambda1) - np.abs(lambda2)
+        ans[~(lambda1<0)] = 0.0
+    ans[~np.isfinite(ans)] = 0.0
+    return ans * (sigma**2)
+
+
+def enhance_filter_2d(image, sigmas, kind='dot'):
+    ans = None
+    for sigma in sigmas:
+        tmp = _enhance_filter_2d_impl(image, sigma, kind)
+        if ans is None:
+            ans = tmp
+        else:
+            ans = np.maximum(ans, tmp)
+    return ans
+
+
+def _enhance_filter_3d_impl(image, sigma, kind):
+    bg = image[0, 0, 0]
+    fxx = gaussian_filter(image, sigma, order=(0, 0, 2) , mode='constant', cval=bg)
+    fyy = gaussian_filter(image, sigma, order=(0, 2, 0) , mode='constant', cval=bg)
+    fzz = gaussian_filter(image, sigma, order=(2, 0, 0) , mode='constant', cval=bg)
+    fxy = gaussian_filter(image, sigma, order=(0, 1, 1) , mode='constant', cval=bg)
+    fyz = gaussian_filter(image, sigma, order=(1, 1, 0) , mode='constant', cval=bg)
+    fzx = gaussian_filter(image, sigma, order=(1, 0, 1) , mode='constant', cval=bg)
+    a = np.zeros(list(image.shape) + [3, 3])
+    a[:,:,:,0,0] = fxx
+    a[:,:,:,1,1] = fyy
+    a[:,:,:,2,2] = fzz
+    a[:,:,:,0,1] = a[:,:,:,1,0] = fxy
+    a[:,:,:,1,2] = a[:,:,:,2,1] = fyz
+    a[:,:,:,0,2] = a[:,:,:,2,0] = fzx
+    w, _ = np.linalg.eig(a)
+    w = apply_argsort(w, np.argsort(np.abs(w)))
+    lambda1 = w[:,:,:,2]
+    lambda2 = w[:,:,:,1]
+    lambda3 = w[:,:,:,0]
+    if kind == 'dot':
+        ans = np.abs(lambda3)**2 / np.abs(lambda1)
+        ans[~((lambda1<0)&(lambda2<0)&(lambda3<0))] = 0.0
+    elif kind == 'line':
+        ans = np.abs(lambda2) * (np.abs(lambda2) - np.abs(lambda3)) / np.abs(lambda1)
+        ans[~((lambda1<0)&(lambda2<0))] = 0.0
+    elif kind == 'plane':
+        ans = np.abs(lambda1) - np.abs(lambda2)
+        ans[~(lambda1<0)] = 0.0
+    ans[~np.isfinite(ans)] = 0.0
+    return ans * (sigma**2)
+
+
+def enhance_filter_3d(image, sigmas, kind='dot'):
+    ans = None
+    for sigma in sigmas:
+        tmp = _enhance_filter_3d_impl(image, sigma, kind)
+        if ans is None:
+            ans = tmp
+        else:
+            ans = np.maximum(ans, tmp)
+    return ans
+
+def get_dot_enhance_filter_sigmas(d0, d1, N=5):
+    r = np.power(d1 / d0, 1.0 / (N - 1))
+    sigmas = np.power(r, np.arange(N)) * d0 / 4
+    return sigmas
+
+
+    def sample_file_ids(min_num_nodules):
+        t = annt_df.groupby('file').count()
+        t = set([luna_preprocess.get_file_id(x)
+                 for x in list(t[t.seriesuid>min_num_nodules].index)])
+        # len('_digest.npz') == 11
+        t1 = set([x[0:-11] for x in os.listdir(luna_preprocess._OUTPUT_DIR)])
+        # len('_dot.npz') == 8
+        t2 = set([x[0:-8] for x in os.listdir(_OUTPUT_DIR)])
+        return list(t.intersection(t1) - t2)
+
+    file_ids = sample_file_ids(1)
+
+    sigmas = util.get_dot_enhance_filter_sigmas(d0=3, d1=33, N=5)
+
+
+def pad_to_square(image_2d):
+    h, w = image_2d.shape
+    pad = abs(w - h) // 2
+    if h < w:
+        return np.pad(image_2d, ((pad, w - h - pad), (0, 0)), 'edge')
+    return np.pad(image_2d, ((0, 0), (pad, h - w - pad)), 'edge')

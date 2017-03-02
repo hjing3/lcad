@@ -42,8 +42,6 @@ import util
 reload(util);
 
 def load_image_from_patient_dir(patient_image_dir):
-    return 'this is a image from dir %s' % patient_image_dir
-    
     p_slices = _load_scans(patient_image_dir)
     p_images = _get_pixels_hu(p_slices)
     p_images_resampled = util.resample(p_images, _get_spacing(p_slices[0]), [1, 1, 1])
