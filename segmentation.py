@@ -63,11 +63,14 @@ def pred_nodule_mask(image, model):
     nrows, ncols = np.ceil((np.asarray(image.shape) - 96) / 24.0).astype(np.int)
     for i in range(nrows):
         for j in range(ncols):
+            # 1. change the stride from 24 to larger
             row_slice = slice(24 * i, 24 * i + 96)
             col_slice = slice(24 * j, 24 * j + 96)
             image_patch = np.reshape(
                 image[row_slice, col_slice], [1, 1, 96, 96])
             image_patch = luna_train_unet2.normalize_images(image_patch)
+            
+            # 2. change to batch prediction---
             mask_patch = model.predict(image_patch)[0, 0]
             ans[row_slice, col_slice] += mask_patch
     return np.minimum(1.0, ans / 4.0)
