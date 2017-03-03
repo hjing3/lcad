@@ -66,9 +66,10 @@ def get_nodule_segmentation():
         spacing = 1.0
         module_cords = segmentation.segment(p_images, _MODEL, spacing)
 
-        outfile = patient_img_dir = os.path.join(
-            _SEGMENTATION_DIR, pname, '.nodule_cords')
-        np.save(outfile, module_cords)
+        outfile_name = patient_img_dir = os.path.join(
+            _SEGMENTATION_DIR, pname + '.nodule_cords')
+        with file(outfile_name, 'w') as outfile:
+            np.save(outfile, module_cords)
 
         print('segmentation done, result saved to: {}'.format(outfile))
 

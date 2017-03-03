@@ -74,9 +74,10 @@ def pred_nodule_mask(image, model):
 
 
 def segment(p_images, module_model, spacing=1):
-    module_mask = np.zeros_like(p_images)
+    module_slice_mask = []
     for slice in range(len(p_images)):
         img = p_images[slice]
-        module_mask[slice] = pred_nodule_mask(img, module_model)
-    return np.where(module_mask > 0)
+        module_mask = pred_nodule_mask(img, module_model)
+        module_slice_mask.append(np.where(module_mask>0))
+    return module_slice_mask
 
