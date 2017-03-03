@@ -38,6 +38,7 @@ def read_patient_labels(csv_fname):
 
 
 _DATA_DIR = '../../data/stage1'
+_SEGMENTATION_DIR = '../../data/stage1_preprocess/unet2_segmentation'
 _OUTPUT_DIR = '../../data/stage1_preprocess'
 _LABELS_CSV = '../../data/stage1_labels.csv'
 _SAMPLE_CSV = '../../data/stage1_sample_submission.csv'
@@ -56,6 +57,10 @@ print("[ground-truth patients, test-patients] = [%d, %d]" \
 
 
 def get_patient_feature_data(patients):
+    # segmentation
+    get_nodule_segmentation(patients)
+
+    #
     feature_dict = {}
     for pname in patients:
         # get patient image dir
@@ -63,24 +68,41 @@ def get_patient_feature_data(patients):
         patient_img_dir = os.path.join(_DATA_DIR, pname)
         #print 'patient_img_dir: %s' % patient_img_dir
         p_images = lung_image.load_image_from_patient_dir(patient_img_dir)
-        plt.figure('loaded image')
-        plt.imshow(p_images[10], cmap='gray')
-        plt.show()
+        #plt.figure('loaded image')
+        #plt.imshow(p_images[10], cmap='gray')
+        #plt.show()
 
         # is it ok to assume spacing to be 1.0 after the resampling?
         spacing = 1.0
-        p_masks = segmentation.segment(p_images, _MODEL, spacing)
-        plt.figure('segmented lung image')
-        plt.imshow(p_masks[10], cmap='gray')
-        plt.show()
+        module_cords = segmentation.segment(p_images, _MODEL, spacing)
+        #plt.figure('segmented lung image')
+        #plt.imshow(p_masks[10], cmap='gray')
+        #plt.show()
         #print 'p_segment: %s' % p_segment
 
-        print "extract features from image"
-        p_feature = feature_extraction.extract_features(p_images, p_masks)
-        print 'p_feature: %s' % str(p_feature)
-        feature_dict[pname] = p_feature
-        break
+        outfile = patient_img_dir = os.path.join(
+            _SEGMENTATION_DIR, pname, '.nodule_cords')
+        np.save(outfile, module_cords)
+
+        #print "extract features from image"
+        #p_feature = feature_extraction.extract_features(p_images, p_masks)
+        #print 'p_feature: %s' % str(p_feature)
+        #feature_dict[pname] = p_feature
+        #break
     return feature_dict
+
+def get_nodule_segmentation(patients):
+    for pname in patients:
+        patient_img_dir = os.path.join(_DATA_DIR, pname)
+        p_images = lung_image.load_image_from_patient_dir(patient_img_dir)
+
+        # is it ok to assume spacing to be 1.0 after the resampling???
+        spacing = 1.0
+        module_cords = segmentation.segment(p_images, _MODEL, spacing)
+
+        outfile = patient_img_dir = os.path.join(
+            _SEGMENTATION_DIR, pname, '.nodule_cords')
+        np.save(outfile, module_cords)
 
 
 def logloss(act, pred):
