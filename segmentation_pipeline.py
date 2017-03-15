@@ -37,7 +37,7 @@ def read_patient_labels(csv_fname):
 
 
 _DATA_DIR = '../../data/stage1'
-_SEGMENTATION_DIR = '../../data/stage1_preprocess/unet2_segmentation'
+_SEGMENTATION_DIR = '../../data/stage1_preprocess/unet2_segmentation_2'
 _OUTPUT_DIR = '../../data/stage1_preprocess'
 _LABELS_CSV = '../../data/stage1_labels.csv'
 _SAMPLE_CSV = '../../data/stage1_sample_submission.csv'
@@ -57,7 +57,16 @@ print("[ground-truth patients, test-patients] = [%d, %d]" \
 
 def get_nodule_segmentation():
     patients = patient_labels.keys()
+    patients.extend(test_patient_names)
+
+    print patients
+
     for pname in patients:
+        outfile = os.path.join(
+            _SEGMENTATION_DIR, pname + '.nodule_cords')
+        if os.path.exists(outfile):
+            continue
+
         print('segmentation for patient: {}'.format(pname))
         patient_img_dir = os.path.join(_DATA_DIR, pname)
         p_images = lung_image.load_image_from_patient_dir(patient_img_dir)
@@ -72,7 +81,6 @@ def get_nodule_segmentation():
             np.save(outfile, module_cords)
 
         print('segmentation done, result saved to: {}'.format(outfile))
-
 
 if __name__ == '__main__':
     get_nodule_segmentation()
