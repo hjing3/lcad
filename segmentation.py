@@ -50,20 +50,6 @@ BOARD_MASK[0:8, :] = 0
 BOARD_MASK[96-8:96, :] = 0
 
 
-def predict(image, model):
-    ans = np.zeros_like(image)
-    for i in range(5):
-        for j in range(5):
-            row_slice = slice(i * 96, (i + 1) * 96)
-            col_slice = slice(j * 96, (j + 1) * 96)
-            image_patch = np.reshape(
-                image[row_slice, col_slice], [1, 1, 96, 96])
-            image_patch = luna_train_unet2.normalize_images(image_patch)
-            mask_patch = model.predict(image_patch)[0, 0]
-            ans[row_slice, col_slice] = mask_patch
-    return ans
-
-
 def pred_nodule_mask_org(image, model):
     ans = np.zeros_like(image).astype(np.float16)
     nrows, ncols = np.ceil((np.asarray(image.shape) - 96) / 24.0).astype(np.int)

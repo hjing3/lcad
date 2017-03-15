@@ -57,6 +57,7 @@ class Image(object):
         self._spacing = np.asarray(itk.GetSpacing(), dtype=np.float)  # x, y, z
         self._image = sitk.GetArrayFromImage(itk)
 
+        # use these functions for diagnosis image loading and transform
         self._iso_resample(iso_spacing)
         self._make_lung_mask()
         self._shrink(shrink_margin)
