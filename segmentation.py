@@ -39,6 +39,8 @@ import luna_train_unet2
 
 import feature_extraction
 
+import luna_train_unet5
+
 import util
 reload(util)
 
@@ -144,7 +146,7 @@ def segment(p_images, module_model, spacing=1):
             print 'segment of slice {} of {}'.format(slice, len(p_images))
         img = p_images[slice]
         module_mask = pred_nodule_mask(img, module_model)
-        #module_mask = pred_nodule_mask_batch(img, module_model)
+        #module_mask = luna_train_unet5.pred_nodule_mask(img, module_model)
 
         nodule_coords = np.where(module_mask > 0)
         module_slice_mask.append(nodule_coords)

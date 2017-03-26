@@ -14,7 +14,7 @@ import scipy as sp
 import feature_extraction
 import lung_image
 import luna_preprocess as prep
-import luna_train_unet2
+import luna_train_unet5
 import util
 import segmentation
 import tensorflow as tf
@@ -37,15 +37,15 @@ def read_patient_labels(csv_fname):
 
 
 _DATA_DIR = '../../data/stage1'
-_SEGMENTATION_DIR = '../../data/stage1_preprocess/unet2_segmentation_2'
+_SEGMENTATION_DIR = '../../data/stage1_preprocess/unet5_segmentation'
 _OUTPUT_DIR = '../../data/stage1_preprocess'
 _LABELS_CSV = '../../data/stage1_labels.csv'
 _SAMPLE_CSV = '../../data/stage1_sample_submission.csv'
 
 _MODEL = None
 with tf.device('/gpu:0'):
-    _MODEL = luna_train_unet2.get_unet()
-_MODEL.load_weights('./unet2.hdf5')
+    _MODEL = luna_train_unet5.get_unet()
+_MODEL.load_weights('/home/haojing/projects/kaggle/lungcancer/code/models/unet5.hdf5-gpu-epoch-99-0p72')
 
 patient_names = os.listdir(_DATA_DIR)
 patient_labels = read_patient_labels(_LABELS_CSV)
@@ -59,7 +59,8 @@ def get_nodule_segmentation():
     patients = patient_labels.keys()
     patients.extend(test_patient_names)
 
-    print patients
+    #patients = test_patient_names
+    #print patients
 
     for pname in patients:
         outfile = os.path.join(
