@@ -48,7 +48,9 @@ _SAMPLE_CSV = '../../data/stage1_sample_submission.csv'
 
 FEATURES = ['area', 'convex_area', 'eccentricity', 'equivalent_diameter',
     'extent', 'major_axis_length', 'minor_axis_length', 'orientation',
-    'perimeter']
+    'perimeter', 'value_mean', 'value_std']
+
+NODULE_SIZE_THRESHOLD = 5
 
 #_MODEL = None
 #with tf.device('/gpu:0'):
@@ -90,7 +92,7 @@ def get_patient_feature_data(patients):
 
 
 def extract_features(p_images, module_cords):
-    print p_images.shape
+    #print p_images.shape
 
     # crete module mask image
     module_mask = np.zeros_like(p_images)
@@ -104,9 +106,9 @@ def extract_features(p_images, module_cords):
         if not cords[0].any():
             continue
 
-        print s
-        print cords[0]
-        print cords[1]
+        #print s
+        #print cords[0]
+        #print cords[1]
 
         module_mask[s][cords[0], cords[1]] = 1
         # verify the segmentation result
@@ -117,15 +119,13 @@ def extract_features(p_images, module_cords):
         #ax1.set_title('segmentation, pixels: {}'.format(len(cords[0])))
         #plt.show()
 
-
     mask_labels = measure.label(module_mask, background=0)
-
-    
 
     # for each slice, get the features,
     # use the label to group results from different slices
     label_feature_maps = {}
     for s in range(len(p_images)):
+        p_image = p_images[s]
         mask_label_slice = mask_labels[s]
         properties = measure.regionprops(mask_label_slice)
         if not properties:
@@ -134,20 +134,30 @@ def extract_features(p_images, module_cords):
         #print 'found valid properties'
         for prop in properties:
             label_feature_map = label_feature_maps.get(prop.label, {})
+            values = p_image[prop.coords[:, 0], prop.coords[:, 1]]
+
             for field in FEATURES:
                 feature_list = label_feature_map.get(field, [])
-                feature_list.append(getattr(prop, field))
+                f = None
+                if field == 'value_mean':
+                    f = np.mean(values)
+                elif field == 'value_std':
+                    f = np.std(values)
+                else:
+                    f = getattr(prop, field)
+                feature_list.append(f)
                 label_feature_map[field] = feature_list
+
             label_feature_maps[prop.label] = label_feature_map
 
-    #print label_feature_maps.keys()
+    sizes = {label: np.sum(feature['area'])
+        for label, feature in label_feature_maps.items()}
+    #print '[all nodules = {}, large nodules = {}]'.format(
+        #len(sizes), sum(s >= NODULE_SIZE_THRESHOLD for s in sizes.values()))
+    label_feature_maps = {
+        label: feature for label, feature in label_feature_maps.items()
+        if sizes[label] >= NODULE_SIZE_THRESHOLD}
 
-    sizes = [np.sum(feature['area']) for feature in label_feature_maps.values()]
-    print sizes
-    print sizes[sizes>5]
-
-    return 
-    
     features_all_labels = []
     for label, feature in label_feature_maps.items():
         label_feature_summary = {
@@ -162,13 +172,17 @@ def extract_features(p_images, module_cords):
             'minor_axis_length': np.dot(
                 feature['minor_axis_length'], feature['area']),
             'eccentricity': np.dot(feature['eccentricity'], feature['area']),
-            'orientation': np.dot(feature['orientation'], feature['area'])}
+            'orientation': np.dot(feature['orientation'], feature['area']),
+            'value_mean': np.dot(feature['value_mean'], feature['value_mean']),
+            'value_std': np.dot(feature['value_std'], feature['value_std'])}
         features_all_labels.append(label_feature_summary)
 
     ## features
     features = []
     for field in FEATURES:
         values = [label_feature[field] for label_feature in features_all_labels]
+        if not values:
+            values = [0, 0]
         features.extend(
             [np.max(values),
              np.min(values),
@@ -177,7 +191,7 @@ def extract_features(p_images, module_cords):
              np.std(values)])
 
     print 'number of nodules: {}'.format(len(label_feature_maps.keys()))
-    print features
+    #print features
     return features
 
 if __name__ == '__main__':
@@ -188,7 +202,7 @@ if __name__ == '__main__':
     print("[ground-truth patients, test-patients, all] = [%d, %d, %d]"
      % (len(patients_tr), len(patients_te), len(patients)))
 
-    patients = ['aec5a58fea38b77b964007aa6975c049']
+    #patients = ['aec5a58fea38b77b964007aa6975c049']
     feature_map = get_patient_feature_data(patients)
     with file('../../data/feature_map.dat', 'w') as outfile:
             np.save(outfile, feature_map)

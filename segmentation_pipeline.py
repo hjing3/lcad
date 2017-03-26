@@ -72,7 +72,6 @@ def get_nodule_segmentation():
         p_images = lung_image.load_image_from_patient_dir(patient_img_dir)
 
         # is it ok to assume spacing to be 1.0 after the resampling???
-        # can use preprocess module as a reference
         spacing = 1.0
         module_cords = segmentation.segment(p_images, _MODEL, spacing)
 

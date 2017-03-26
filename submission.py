@@ -7,6 +7,8 @@ import numpy as np
 import scipy as sp
 
 from sklearn.cross_validation import StratifiedKFold as KFold
+from sklearn.model_selection import StratifiedKFold
+
 from sklearn.metrics import classification_report
 from sklearn.ensemble import RandomForestClassifier as RF
 import xgboost as xgb
@@ -28,6 +30,11 @@ import pandas as pd
 import SimpleITK as sitk
 from skimage import morphology
 from glob import glob
+
+from sklearn.svm import SVC
+from sklearn import preprocessing
+from sklearn.feature_selection import SelectKBest, chi2
+from sklearn.preprocessing import Normalizer
 
 
 def read_patient_labels(csv_fname):
@@ -55,7 +62,7 @@ print("[ground-truth patients, test-patients] = [%d, %d]"
 def classify_data():
     # load feature data
     print 'load feature data'
-    feature_map = np.load('../../data/feature_map.dat-20170312')
+    feature_map = np.load('../../data/feature_map.dat-20170321')
     #feature_map.keys()
     X_map = feature_map[()]
 
@@ -63,19 +70,23 @@ def classify_data():
     patients = patient_labels.keys()
 
     X = np.array([X_map[p] for p in patients])
-    Y = np.array([patient_labels[p] for p in patients])
+    Y = np.array([patient_labels[p] for p in patients]).astype('float32')
 
-    kf = KFold(Y, n_folds=100)
-    y_pred = Y * 0.5
-    for train, test in kf:
-        X_train, X_test, y_train, y_test = \
-            X[train, :], X[test, :], Y[train], Y[test]
-        clf = RF(n_estimators=100, n_jobs=3)
-        clf.fit(X_train, y_train)
-        y_pred[test] = clf.predict(X_test)
-    print(classification_report(
-        Y, y_pred, target_names=["No Cancer", "Cancer"]))
-    print("logloss", logloss(Y, y_pred))
+    print Y
+    print '[pos={}, neg={}, all={}]'.format(sum(Y), len(Y)-sum(Y), len(Y))
+
+    print X.shape
+
+    X = X.clip(min=1e-5)
+    #ch2 = SelectKBest(chi2, k=20)
+    #X = ch2.fit_transform(X, Y)
+
+    print X.shape
+    print X[0, :]
+
+    normalizer = Normalizer(copy=False)
+    X_scaled = normalizer.fit_transform(X)
+    print X_scaled[0, :]
 
     # All Cancer
     print("Predicting all positive")
@@ -90,38 +101,56 @@ def classify_data():
     print(classification_report(Y, y_pred, target_names=["No Cancer", "Cancer"]))
     print("logloss", logloss(Y, y_pred))
 
-    # unknown
-    print("Predicting all negative")
-    y_pred = np.ones(Y.shape) * 0.5
-    print(classification_report(Y.astype(float), y_pred.astype(float), target_names=["No Cancer", "Cancer"]))
-    print("logloss", logloss(Y, y_pred))
-
-    # try XGBoost
-    print ("XGBoost")
-    kf = KFold(Y, n_folds=3)
-    y_pred = Y * 0
+    skf = StratifiedKFold(n_splits=5)
+    kf = skf.split(X, Y)
+    y_pred = Y * 0.5
+    y_pred_svc = Y * 0.5
+    y_pred_xgb = Y * 0.5
     for train, test in kf:
         X_train, X_test, y_train, y_test = \
-            X[train, :], X[test, :], Y[train], Y[test]
-        clf = xgb.XGBClassifier(objective="multi:softprob")
+            X_scaled[train, :], X_scaled[test, :], Y[train], Y[test]
+        clf = RF(n_estimators=100, n_jobs=3)
         clf.fit(X_train, y_train)
-        y_pred[test] = clf.predict_proba(X_test)
+        y_pred[test] = clf.predict(X_test)
 
-    print(classification_report(Y, y_pred, target_names=["No Cancer", "Cancer"]))
+        #print y_train
+        #print y_train[y_train>0]
+
+        clf_svc = SVC(
+            class_weight={0: 3}, probability=True, shrinking=True, C=0.01, gamma=1000)
+        clf_svc.fit(X_train, y_train)
+        y_pred_svc[test] = clf_svc.predict_proba(X_test)
+
+        clf_xgb = xgb.XGBClassifier(objective="binary:logistic")
+        clf_xgb.fit(X_train, y_train)
+        y_pred_xgb[test] = clf_xgb.predict_proba(X_test)
+
+    print 'Random forest'
+    print(classification_report(
+        Y, y_pred, target_names=["No Cancer", "Cancer"]))
     print("logloss", logloss(Y, y_pred))
+
+    print 'SVM'
+    print(classification_report(
+        Y, y_pred_svc>0.5, target_names=["No Cancer", "Cancer"]))
+    print("logloss", logloss(Y, y_pred_svc))
+
+    print 'XGB'
+    print(classification_report(
+        Y, y_pred_xgb>0.5, target_names=["No Cancer", "Cancer"]))
+    print("logloss", logloss(Y, y_pred_xgb))
 
     # ######################
     # Classify test data
     # ######################
-    print(test_patient_names)
 
     print("extract features for test patients")
     X_test_patient = \
         np.array([X_map[p] for p in test_patient_names])
+    X_test_patient = normalizer.transform(X_test_patient)
 
-    clf_overall = RF(n_estimators=10, n_jobs=3)
-    clf_overall.fit(X, Y)
-    test_patient_pred = clf_overall.predict_proba(X_test_patient)
+    clf_svc.fit(X_scaled, Y)
+    test_patient_pred = clf_svc.predict_proba(X_test_patient)
     print(test_patient_pred)
     write_submission_file(test_patient_names, test_patient_pred)
 
@@ -140,7 +169,7 @@ def write_submission_file(patient_names, preds):
     with open('../../lcad.csv', 'w') as f:
         f.write('id,cancer\n')
         for i in range(len(patient_names)):
-            f.write('{},{}\n'.format(patient_names[i], preds[i]))
+            f.write('{},{}\n'.format(patient_names[i], preds[i][1]))
 
 if __name__ == '__main__':
     classify_data()
