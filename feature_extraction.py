@@ -75,7 +75,8 @@ def load_image_and_masks(patient_name):
 
 def get_patient_feature_data(patients):
     feature_dict = {}
-    for pname in patients:
+    for k, pname in enumerate(patients):
+        print "{}, {}".format(k, pname)
         try:
             images, lung_masks, nodule_masks = load_image_and_masks(pname)
             nodule_masks[lung_masks < 0.5] = 0
@@ -246,6 +247,8 @@ def extract_features(p_images, lung_masks, nodule_masks):
 
 
 def get_location_feature(lung_mask, prop):
+    img_shape = lung_mask.shape
+    
     orientations = [
         (1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]
 
@@ -260,11 +263,23 @@ def get_location_feature(lung_mask, prop):
     for index in range(len(orientations)):
         orientation = orientations[index]
         dist = 0
-        while lung_mask[
-            x + dist * orientation[0],
-            y + dist * orientation[1],
-            z + dist * orientation[2]] > .5:
+
+        cord = [x + dist * orientation[0],
+                y + dist * orientation[1],
+                z + dist * orientation[2]]
+        valid = (cord[0] > 0 and cord[0] < img_shape[0] and
+                 cord[1] > 0 and cord[1] < img_shape[1] and
+                 cord[2] > 0 and cord[2] < img_shape[2])
+
+        while valid and lung_mask[cord[0], cord[1], cord[2]] > .5:
             dist += 1
+            cord = [x + dist * orientation[0],
+                    y + dist * orientation[1],
+                    z + dist * orientation[2]]
+            valid = (cord[0] > 0 and cord[0] < img_shape[0] and
+                     cord[1] > 0 and cord[1] < img_shape[1] and
+                     cord[2] > 0 and cord[2] < img_shape[2])
+
         if dist < dist_small or index == 0:
             dist_small = dist
             close_orientation = index
@@ -284,7 +299,7 @@ if __name__ == '__main__':
     patients_tr = patient_labels.keys()
     patients_te = test_patient_names
 
-    patients = set(patients_tr) | set(patients_te)
+    patients = list(set(patients_tr) | set(patients_te))
     print("[ground-truth patients, test-patients, all] = [%d, %d, %d]"
      % (len(patients_tr), len(patients_te), len(patients)))
 
