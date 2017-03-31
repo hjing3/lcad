@@ -84,13 +84,13 @@ def get_patient_feature_data(patients):
         except:
             print 'corrupted file: {}'.format(pname)
 
-        features = extract_features(images, nodule_masks)
+        features = extract_features(images, lung_masks, nodule_masks)
         feature_dict[pname] = features
     return feature_dict
 
 
-def extract_features(p_images, module_mask):
-    mask_labels = measure.label(module_mask, background=0)
+def extract_features(p_images, lung_masks, nodule_masks):
+    mask_labels = measure.label(nodule_masks, background=0)
 
     # for each slice, get the features,
     # use the label to group results from different slices
@@ -149,7 +149,7 @@ def extract_features(p_images, module_mask):
         features_all_labels.append(label_feature_summary)
 
     ## features
-    features = []
+    features = [len(label_feature_maps.keys())]
     for field in FEATURES:
         values = [label_feature[field] for label_feature in features_all_labels]
         if not values:
@@ -161,9 +161,123 @@ def extract_features(p_images, module_mask):
              np.mean(values),
              np.std(values)])
 
+    # calculate the dilated nodule area in whole image (all slices)
+    nodule_mask_dilated = morphology.binary_dilation(
+        nodule_masks, np.ones((5, 5, 5)))
+    values_dilated = p_images[nodule_mask_dilated > 0]
+    values_nodule = p_images[nodule_masks > 0]
+    values_bkg = p_images[nodule_mask_dilated > nodule_masks]
+
+    contrast = np.mean(values_nodule) - np.mean(values_bkg)
+    nodule_mean = np.mean(values_nodule)
+    nodule_std = np.std(values_nodule)
+    bkg_mean = np.mean(values_bkg)
+    bkg_std = np.std(values_bkg)
+    area_mean = np.mean(values_dilated)
+    area_std = np.std(values_dilated)
+    new_features = [nodule_mean, nodule_std, bkg_mean, bkg_std,
+        area_mean, area_std, contrast]
+    #print new_features
+    features.extend(new_features)
+
+    # calculate gradient in the dilated area, orientation and magnitude
+    nodule_area_coord = np.where(nodule_mask_dilated > .5)
+    x_min = np.min(nodule_area_coord[0])
+    x_max = np.max(nodule_area_coord[0])
+    y_min = np.min(nodule_area_coord[1])
+    y_max = np.max(nodule_area_coord[1])
+    z_min = np.min(nodule_area_coord[2])
+    z_max = np.max(nodule_area_coord[2])
+    img_nodule_area = p_images[x_min:x_max, y_min:y_max, z_min:z_max]
+    mask_dilated_nodule_area = nodule_mask_dilated[
+        x_min:x_max, y_min:y_max, z_min:z_max]
+    mask_nodule_area = nodule_masks[x_min:x_max, y_min:y_max, z_min:z_max]
+    gradient_nodule_area = np.gradient(img_nodule_area)
+
+    location_area = mask_dilated_nodule_area > 0
+    gradient_area_x = gradient_nodule_area[0][location_area]
+    gradient_area_y = gradient_nodule_area[1][location_area]
+    gradient_area_z = gradient_nodule_area[2][location_area]
+    new_features = [
+        np.mean(gradient_area_x), np.std(gradient_area_x),
+        np.mean(np.abs(gradient_area_x)), np.std(np.abs(gradient_area_x)),
+        np.mean(gradient_area_y), np.std(gradient_area_y),
+        np.mean(np.abs(gradient_area_y)), np.std(np.abs(gradient_area_y)),
+        np.mean(gradient_area_z), np.std(gradient_area_z),
+        np.mean(np.abs(gradient_area_z)), np.std(np.abs(gradient_area_z)),
+        ]
+    features.extend(new_features)
+    #print new_features
+
+    # distance from lung wall, and location (one-hot, 1 of six directions)
+    properties = measure.regionprops(mask_labels)
+    location_features_dict = {}
+    for prop in properties:
+        location_features = get_location_feature(lung_masks, prop)
+        if not location_features:
+            location_features = [0] * 8
+        for lf_ind in range(len(location_features)):
+            old_feature = []
+            if lf_ind in location_features_dict:
+                old_feature = location_features_dict[lf_ind]
+            old_feature.append(location_features[lf_ind])
+            location_features_dict[lf_ind] = old_feature
+
+    #print 'location features (location_features_dict):'
+    #print location_features_dict
+
+    location_features = []
+    for lf_ind in range(len(location_features_dict.keys())):
+        values = location_features_dict[lf_ind]
+        location_features.extend(
+            [np.max(values),
+             np.min(values),
+             np.sum(values),
+             np.mean(values),
+             np.std(values)])
+
+    #print 'location_features:'
+    #print location_features
+    features.extend(location_features)
+
     #print 'number of nodules: {}'.format(len(label_feature_maps.keys()))
     #print features
     return features
+
+
+def get_location_feature(lung_mask, prop):
+    orientations = [
+        (1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]
+
+    x = int(np.mean(prop.coords[:, 0]))
+    y = int(np.mean(prop.coords[:, 1]))
+    z = int(np.mean(prop.coords[:, 2]))
+
+    closest_orientation_index = 0
+    dist_small = -1
+    close_orientation = -1
+    dist_large = -1
+    for index in range(len(orientations)):
+        orientation = orientations[index]
+        dist = 0
+        while lung_mask[
+            x + dist * orientation[0],
+            y + dist * orientation[1],
+            z + dist * orientation[2]] > .5:
+            dist += 1
+        if dist < dist_small or index == 0:
+            dist_small = dist
+            close_orientation = index
+        if dist > dist_large or index == 0:
+            dist_large = dist
+
+    closest_orientations = [0.0] * 6
+    closest_orientations[close_orientation] = 1.0
+    locatoin_features = [
+        dist_small * 1.0, dist_large * 1.0] + closest_orientations
+    #print 'locaton features: '
+    #print locatoin_features
+    #return locatoin_features
 
 
 if __name__ == '__main__':
