@@ -45,7 +45,6 @@ def read_patient_labels(csv_fname):
 
 
 _DATA_DIR = '../../data/stage1'
-_SEGMENTATION_DIR = '../../data/stage1_preprocess/unet2_segmentation'
 _OUTPUT_DIR = '../../data/stage1_preprocess'
 _LABELS_CSV = '../../data/stage1_labels.csv'
 _SAMPLE_CSV = '../../data/stage1_sample_submission.csv'
@@ -62,7 +61,7 @@ print("[ground-truth patients, test-patients] = [%d, %d]"
 def classify_data():
     # load feature data
     print 'load feature data'
-    feature_map = np.load('../../data/feature_map.dat-20170321')
+    feature_map = np.load('../../data/feature_map_thres_10.dat')
     #feature_map.keys()
     X_map = feature_map[()]
 
@@ -73,7 +72,7 @@ def classify_data():
     Y = np.array([patient_labels[p] for p in patients]).astype('float32')
 
     print Y
-    print '[pos={}, neg={}, all={}]'.format(sum(Y), len(Y)-sum(Y), len(Y))
+    print '[pos={}, neg={}, all={}]'.format(sum(Y), len(Y) - sum(Y), len(Y))
 
     print X.shape
 
@@ -98,7 +97,8 @@ def classify_data():
     # No Cancer
     print("Predicting all negative")
     y_pred = Y * 0
-    print(classification_report(Y, y_pred, target_names=["No Cancer", "Cancer"]))
+    print(
+        classification_report(Y, y_pred, target_names=["No Cancer", "Cancer"]))
     print("logloss", logloss(Y, y_pred))
 
     skf = StratifiedKFold(n_splits=5)
@@ -109,7 +109,7 @@ def classify_data():
     for train, test in kf:
         X_train, X_test, y_train, y_test = \
             X_scaled[train, :], X_scaled[test, :], Y[train], Y[test]
-        clf = RF(n_estimators=100, n_jobs=3)
+        clf = RF(n_estimators=120, n_jobs=3)
         clf.fit(X_train, y_train)
         y_pred[test] = clf.predict(X_test)
 
@@ -117,7 +117,11 @@ def classify_data():
         #print y_train[y_train>0]
 
         clf_svc = SVC(
-            class_weight={0: 3}, probability=True, shrinking=True, C=0.01, gamma=1000)
+            class_weight={0: 2},
+            probability=True,
+            shrinking=True,
+            C=0.01,
+            gamma=1000)
         clf_svc.fit(X_train, y_train)
         y_pred_svc[test] = clf_svc.predict_proba(X_test)
 
@@ -132,12 +136,12 @@ def classify_data():
 
     print 'SVM'
     print(classification_report(
-        Y, y_pred_svc>0.5, target_names=["No Cancer", "Cancer"]))
+        Y, y_pred_svc > 0.5, target_names=["No Cancer", "Cancer"]))
     print("logloss", logloss(Y, y_pred_svc))
 
     print 'XGB'
     print(classification_report(
-        Y, y_pred_xgb>0.5, target_names=["No Cancer", "Cancer"]))
+        Y, y_pred_xgb > 0.5, target_names=["No Cancer", "Cancer"]))
     print("logloss", logloss(Y, y_pred_xgb))
 
     # ######################
@@ -149,10 +153,17 @@ def classify_data():
         np.array([X_map[p] for p in test_patient_names])
     X_test_patient = normalizer.transform(X_test_patient)
 
+    #print X_test_patient[0,:]
+
     clf_svc.fit(X_scaled, Y)
     test_patient_pred = clf_svc.predict_proba(X_test_patient)
-    print(test_patient_pred)
-    write_submission_file(test_patient_names, test_patient_pred)
+    #print(test_patient_pred)
+    write_submission_file(test_patient_names, test_patient_pred, 'svm-1')
+
+    clf.fit(X_scaled, Y)
+    test_patient_pred = clf.predict_proba(X_test_patient)
+    #print(test_patient_pred)
+    write_submission_file(test_patient_names, test_patient_pred, 'rf-2')
 
 
 def logloss(act, pred):
@@ -165,11 +176,12 @@ def logloss(act, pred):
     return ll
 
 
-def write_submission_file(patient_names, preds):
-    with open('../../lcad.csv', 'w') as f:
+def write_submission_file(patient_names, preds, file_name=''):
+    with open('../../lcad-{}.csv'.format(file_name), 'w') as f:
         f.write('id,cancer\n')
         for i in range(len(patient_names)):
             f.write('{},{}\n'.format(patient_names[i], preds[i][1]))
+
 
 if __name__ == '__main__':
     classify_data()
